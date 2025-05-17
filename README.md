@@ -1,3 +1,5 @@
+# **Fully Vibe-Coded Game But Architectural Knowledge What A Dev Should Always Required.**
+
 # **EtherSnake Game (Single-Player) - A Blockchain Twist on the Classic Snake**
 
 Welcome to **EtherSnake Game**, a thrilling single-player snake adventure with a **blockchain twist**! 🐍✨ Get ready to control your very own snake, gobble up food to grow longer, and dodge AI bots in a fast-paced environment. But here’s the real kicker: **Earn rewards based on your survival time**, thanks to Ethereum smart contracts on the **Sepolia testnet**. Your snake skills can make you a blockchain hero! 🎮💰 Inspired By Noodle.gg / Slither.io
