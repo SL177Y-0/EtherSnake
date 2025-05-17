@@ -18,9 +18,17 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+    <html lang="en" className="flex flex-col min-h-screen">
+      <body className={`${inter.className} flex flex-col flex-grow`}>
+        <header className="text-center py-2 text-xs text-gray-400 bg-gray-900 border-b border-gray-700">
+          Powered By Cluster Protocol / Made By CodeXero
+        </header>
+        <main className="flex-grow">
+          <Providers>{children}</Providers>
+        </main>
+        <footer className="text-center py-2 text-xs text-gray-400 bg-gray-900 border-t border-gray-700">
+          Powered By Cluster Protocol / Made By CodeXero
+        </footer>
       </body>
     </html>
   )

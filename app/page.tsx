@@ -17,7 +17,7 @@ export default function Home() {
             </Link>
           
             <Link href="/admin">
-              <Button variant="ghost">Admin</Button>
+              <Button variant="ghost">Create</Button>
             </Link>
           </nav>
         </div>
@@ -103,7 +103,7 @@ export default function Home() {
             </Link>
         
             <Link href="/admin" className="text-sm text-muted-foreground hover:underline">
-              Admin
+              Create
             </Link>
           </div>
         </div>

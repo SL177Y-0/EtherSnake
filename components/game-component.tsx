@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 
 interface GameComponentProps {
-  onGameOver: () => void
+  onGameOver: (finalSurvivalTime: number) => void;
+  playerName: string;
 }
 
 // Snake segment with smooth movement
@@ -31,13 +32,14 @@ interface Bot {
   lastThink: number
 }
 
-export default function GameComponent({ onGameOver }: GameComponentProps) {
+export default function GameComponent({ onGameOver, playerName }: GameComponentProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const requestRef = useRef<number | undefined>(undefined)
   const [score, setScore] = useState(0)
   const [gameStarted, setGameStarted] = useState(false)
   const [gameOver, setGameOver] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+  const mousePositionRef = useRef({ x: 0, y: 0 }); // Ref for latest mouse position
   const hasMouseMoved = useRef<boolean>(false)
   const defaultDirection = useRef<{ x: number, y: number }>({ x: 1, y: 0 })
 
@@ -85,6 +87,7 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
   })
 
   const startGame = () => {
+    console.log("startGame called. Current gameOver state:", gameOver);
     if (gameOver) {
       resetGame()
     }
@@ -100,6 +103,10 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
       x: state.viewportWidth / 2,
       y: state.viewportHeight / 2
     })
+    mousePositionRef.current = { // Initialize ref too
+      x: state.viewportWidth / 2,
+      y: state.viewportHeight / 2
+    };
     
     // Set initial default direction (right)
     defaultDirection.current = { x: 1, y: 0 }
@@ -109,6 +116,7 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
       const head = state.snake[0]
       head.angle = 0 // 0 radians = moving right
     }
+    console.log("startGame: gameStarted set to true, gameOver set to false");
   }
 
   const resetGame = () => {
@@ -157,7 +165,7 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
 
   const endGame = () => {
     setGameOver(true)
-    onGameOver()
+    onGameOver(gameStateRef.current.elapsedTime);
   }
 
   const generateFood = (count: number) => {
@@ -348,7 +356,10 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
     const state = gameStateRef.current
     const { snake, viewportWidth, viewportHeight, camera } = state
 
-    if (snake.length === 0) return
+    if (snake.length === 0) {
+      console.log("moveSnake: Snake has no length, returning.");
+      return;
+    }
 
     // Use mouse controls
     const head = snake[0]
@@ -361,14 +372,24 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
       const worldMouseX = mouseX + camera.x
       const worldMouseY = mouseY + camera.y
       
-      dx = worldMouseX - head.x
-      dy = worldMouseY - head.y
-      angle = Math.atan2(dy, dx)
+      const localDx = worldMouseX - head.x
+      const localDy = worldMouseY - head.y
+      const distanceToMouse = Math.sqrt(localDx * localDx + localDy * localDy)
+      const veryCloseThreshold = 1.0 // If mouse is within 1px of head
+
+      if (distanceToMouse < veryCloseThreshold) {
+        // Mouse is very close or on the head, continue in current direction
+        angle = head.angle 
+      } else {
+        angle = Math.atan2(localDy, localDx)
+      }
     } else {
       // If mouse hasn't moved yet, move in the default direction (right)
       angle = Math.atan2(defaultDirection.current.y, defaultDirection.current.x)
     }
     
+    console.log(`moveSnake: hasMoved=${hasMouseMoved.current}, mouse(raw)=${mouseX},${mouseY}, camera=${camera.x},${camera.y}, head=${snake[0].x.toFixed(2)},${snake[0].y.toFixed(2)}, calculatedAngle=${angle.toFixed(2)}, playerSpeed=${state.playerSpeed}`);
+
     // Always move the snake
     head.targetX += Math.cos(angle) * state.playerSpeed
     head.targetY += Math.sin(angle) * state.playerSpeed
@@ -633,14 +654,20 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
 
   const gameLoop = (timestamp: number) => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas) {
+      console.log("GameLoop: Canvas not found");
+      return;
+    }
 
     const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    if (!ctx) {
+      console.log("GameLoop: Canvas context not found");
+      return;
+    }
 
     if (gameStarted && !gameOver) {
       // Always move the snake, using mouse position if available
-      moveSnake(mousePosition.x, mousePosition.y)
+      moveSnake(mousePositionRef.current.x, mousePositionRef.current.y) // Use ref here
       updateBots(timestamp)
     }
 
@@ -649,15 +676,25 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!gameStarted || gameOver) return
+    console.log("handleMouseMove called. gameStarted:", gameStarted, "gameOver:", gameOver, "hasMouseMoved before:", hasMouseMoved.current);
+    if (!gameStarted || gameOver) {
+      console.log("handleMouseMove: Game not active, returning.");
+      return
+    }
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas) {
+      console.log("handleMouseMove: Canvas not found, returning.");
+      return
+    }
     const rect = canvas.getBoundingClientRect()
-    setMousePosition({
+    const newMousePosition = {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-    })
-    hasMouseMoved.current = true
+    };
+    setMousePosition(newMousePosition); // Keep state for other potential uses
+    mousePositionRef.current = newMousePosition; // Update ref with latest position
+    hasMouseMoved.current = true;
+    console.log("handleMouseMove: Mouse moved. Position (ref):", mousePositionRef.current, "hasMouseMoved after:", hasMouseMoved.current);
   }
 
   useEffect(() => {
@@ -665,6 +702,13 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
     if (!canvas) return
 
     const state = gameStateRef.current
+    // Update playerName in gameState from prop
+    if (playerName) {
+      state.playerName = playerName;
+    } else {
+      state.playerName = "Player"; // Default if prop not provided
+    }
+    
     canvas.width = state.viewportWidth
     canvas.height = state.viewportHeight
 
@@ -674,18 +718,22 @@ export default function GameComponent({ onGameOver }: GameComponentProps) {
       requestRef.current = requestAnimationFrame(gameLoop)
     }
 
-    // On first mount, set mouse position to center
+    // On first mount, set mouse position
     setMousePosition({
       x: state.viewportWidth / 2,
       y: state.viewportHeight / 2
     })
+    mousePositionRef.current = { // Initialize ref too
+      x: state.viewportWidth / 2,
+      y: state.viewportHeight / 2
+    };
 
     return () => {
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current)
       }
     }
-  }, [gameStarted, gameOver])
+  }, [gameStarted, gameOver, playerName])
 
   return (
     <div className="flex flex-col items-center justify-center w-full">

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, Trophy, Clock, ArrowLeft } from "lucide-react"
+import { Loader2, Trophy, Clock, ArrowLeft, AlertTriangle } from "lucide-react"
 import { useWeb3 } from "@/hooks/use-web3"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
@@ -29,14 +29,12 @@ export default function PlayPage() {
   const eventId = searchParams.get("eventId")
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [gameStarted, setGameStarted] = useState(false)
   const [gameOver, setGameOver] = useState(false)
   const [survivalTime, setSurvivalTime] = useState(0)
   const [submittingScore, setSubmittingScore] = useState(false)
   const [playerJoined, setPlayerJoined] = useState(false)
+  const [playerNickname, setPlayerNickname] = useState<string>("")
   const [playerSubmitted, setPlayerSubmitted] = useState(false)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const startTimeRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!eventId) {
@@ -47,58 +45,69 @@ export default function PlayPage() {
     if (contract && address) {
       fetchEventDetails()
     }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-      }
-    }
-  }, [contract, address, eventId])
+  }, [contract, address, eventId, router])
 
   const fetchEventDetails = async () => {
     try {
       setLoading(true)
-      if (!contract) {
+      if (!contract || !address) {
         toast({
           title: "Error",
-          description: "Contract not initialized. Please try reconnecting your wallet.",
+          description: "Contract not initialized or wallet not connected.",
           variant: "destructive",
         })
+        setLoading(false)
         return
       }
       
-      const eventDetails = await contract.getEventDetails(eventId)
-      const timeRemaining = await contract.getTimeRemaining(eventId)
-      const playerCount = await contract.getPlayerCount(eventId)
+      const eventDetailsPromise = contract.getEventDetails(eventId)
+      const timeRemainingPromise = contract.getTimeRemaining(eventId)
+      const playerCountPromise = contract.getPlayerCount(eventId)
+      
+      let playerDetailsResult = null
+      let fetchedPlayerJoined = false
+      let fetchedPlayerNickname = ""
+      let fetchedPlayerSubmitted = false
 
-      // Check if player has joined this event
       try {
-        const playerDetails = await contract.getPlayerDetails(eventId, address)
-        setPlayerJoined(playerDetails[0] !== "0x0000000000000000000000000000000000000000")
-        setPlayerSubmitted(playerDetails[3]) // hasSubmittedScore
+        playerDetailsResult = await contract.getPlayerDetails(eventId, address)
+        if (playerDetailsResult && playerDetailsResult[0] !== "0x0000000000000000000000000000000000000000") {
+          fetchedPlayerJoined = true
+          fetchedPlayerNickname = playerDetailsResult[1] || "Player"
+          fetchedPlayerSubmitted = playerDetailsResult[3]
+        }
       } catch (error) {
-        setPlayerJoined(false)
-        setPlayerSubmitted(false)
+        console.warn("Player details not found for this event or error fetching:", error)
       }
+
+      setPlayerJoined(fetchedPlayerJoined)
+      setPlayerNickname(fetchedPlayerNickname)
+      setPlayerSubmitted(fetchedPlayerSubmitted)
+
+      const [eventDetails, timeRemaining, playerCount] = await Promise.all([
+        eventDetailsPromise,
+        timeRemainingPromise,
+        playerCountPromise,
+      ])
 
       setEvent({
         id: Number(eventDetails[0]),
-        startTime: Number(eventDetails[1]) * 1000, // Convert to milliseconds
-        duration: Number(eventDetails[2]) * 1000, // Convert to milliseconds
+        startTime: Number(eventDetails[1]) * 1000,
+        duration: Number(eventDetails[2]) * 1000,
         prizePool: eventDetails[3],
         creator: eventDetails[4],
         isActive: eventDetails[5],
         isPrizeClaimed: eventDetails[6],
         winner: eventDetails[7],
         highestScore: Number(eventDetails[8]),
-        timeRemaining: Number(timeRemaining) * 1000, // Convert to milliseconds
+        timeRemaining: Number(timeRemaining) * 1000,
         playerCount: Number(playerCount),
       })
     } catch (error) {
       console.error("Error fetching event details:", error)
       toast({
-        title: "Error",
-        description: "Failed to fetch event details. Please try again.",
+        title: "Error fetching event details",
+        description: (error as Error)?.message || "Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -106,16 +115,16 @@ export default function PlayPage() {
     }
   }
 
-  const handleGameOver = () => {
+  const handleGameOver = (finalSurvivalTime: number) => {
     setGameOver(true)
-    // We'll get the survival time from the game component
+    setSurvivalTime(finalSurvivalTime)
   }
 
   const submitScore = async () => {
     if (!playerJoined) {
       toast({
-        title: "Error",
-        description: "You haven't joined this event. Please join first.",
+        title: "Cannot Submit Score",
+        description: "You haven't joined this event.",
         variant: "destructive",
       })
       return
@@ -123,7 +132,7 @@ export default function PlayPage() {
 
     if (playerSubmitted) {
       toast({
-        title: "Error",
+        title: "Score Already Submitted",
         description: "You have already submitted a score for this event.",
         variant: "destructive",
       })
@@ -175,17 +184,16 @@ export default function PlayPage() {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`
   }
 
-  if (!contract || !address) {
+  if (!address) {
     return (
       <div className="container py-10 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)]">
         <h1 className="text-2xl font-bold mb-4">Connect Your Wallet</h1>
-        <p className="text-muted-foreground mb-6">Connect your wallet to play the game</p>
-        <Button onClick={connectWallet} disabled={isConnecting}>
+        <p className="text-muted-foreground mb-6">Please connect your wallet to play and view event details.</p>
+        <Button onClick={connectWallet} disabled={isConnecting || !contract}>
           {isConnecting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Connecting...
-            </>
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Connecting...</>
+          ) : !contract ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading Contract...</>
           ) : (
             "Connect Wallet"
           )}
@@ -197,7 +205,8 @@ export default function PlayPage() {
   if (loading) {
     return (
       <div className="container py-10 flex justify-center items-center min-h-[calc(100vh-8rem)]">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-2 text-muted-foreground">Loading event details...</p>
       </div>
     )
   }
@@ -205,14 +214,14 @@ export default function PlayPage() {
   if (!event) {
     return (
       <div className="container py-10 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)]">
-        <h1 className="text-2xl font-bold mb-4">Event Not Found</h1>
-        <p className="text-muted-foreground mb-6">The event you're looking for doesn't exist</p>
-        <Link href="/events">
-          <Button>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Events
-          </Button>
-        </Link>
+        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+        <h1 className="text-2xl font-bold mb-2 text-destructive">Event Not Found</h1>
+        <p className="text-muted-foreground mb-6 text-center">
+          The event you are looking for (ID: {eventId}) could not be loaded. It might not exist or there was an issue fetching its details.
+        </p>
+        <Button onClick={() => router.push('/events')} variant="outline">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Events
+        </Button>
       </div>
     )
   }
@@ -270,100 +279,57 @@ export default function PlayPage() {
   }
 
   return (
-    <div className="container py-10">
-      <div className="flex justify-between items-center mb-8">
-        <div className="flex items-center">
-          <Link href="/events">
-            <Button variant="ghost" size="icon" className="mr-2">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <h1 className="text-3xl font-bold">Event #{event.id}</h1>
-        </div>
-        <div className="flex items-center">
-          <Clock className="h-5 w-5 mr-2" />
-          <span>Time Remaining: {formatTime(Math.floor(event.timeRemaining / 1000))}</span>
-        </div>
-      </div>
+    <div className="container py-6 md:py-10">
+      <Button onClick={() => router.push('/events')} variant="outline" className="mb-6">
+        <ArrowLeft className="mr-2 h-4 w-4" /> Back to Events
+      </Button>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-6">
-          <div className="rounded-lg overflow-hidden">
-            <GameComponent onGameOver={handleGameOver} />
-          </div>
-
-          {gameOver && (
-            <Card>
+      <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+        <div className="md:col-span-2">
+          {playerJoined ? (
+            <GameComponent 
+              onGameOver={handleGameOver} 
+              playerName={playerNickname || "Player"}
+            />
+          ) : (
+            <Card className="h-[400px] flex flex-col items-center justify-center bg-muted/30">
               <CardHeader>
-                <CardTitle>Game Over</CardTitle>
-                <CardDescription>Your snake survived for {formatTime(survivalTime)}</CardDescription>
+                <CardTitle className="text-center text-xl md:text-2xl">Join Event to Play</CardTitle>
               </CardHeader>
-              <CardContent>
-                <p>Would you like to submit this score or try again?</p>
+              <CardContent className="text-center">
+                <p className="text-muted-foreground mb-4">
+                  You need to join this event to play the game and submit your score.
+                </p>
+                <Button onClick={() => router.push(`/events?eventId=${eventId}`)} variant="default" size="lg">
+                  Go to Event Page to Join
+                </Button>
               </CardContent>
-              <CardFooter className="flex justify-between">
-                <Button variant="outline" onClick={() => setGameOver(false)}>
-                  Play Again
-                </Button>
-                <Button onClick={submitScore} disabled={submittingScore || playerSubmitted || !playerJoined}>
-                  {submittingScore ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : playerSubmitted ? (
-                    "Score Submitted"
-                  ) : !playerJoined ? (
-                    "Join Event First"
-                  ) : (
-                    "Submit Score"
-                  )}
-                </Button>
-              </CardFooter>
             </Card>
           )}
         </div>
 
-        <div className="space-y-6">
+        <div className="md:col-span-1 flex flex-col space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Event Info</CardTitle>
+              <CardTitle>Event Info (ID: {event.id})</CardTitle>
+              <CardDescription>
+                Prize Pool: {formatEther(event.prizePool || "0")} ETH
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between">
-                <span>Prize Pool:</span>
-                <span className="font-bold">{formatEther(event.prizePool)} ETH</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Players:</span>
-                <span>{event.playerCount}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Current Top Score:</span>
-                <span>{event.highestScore} seconds</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Your Status:</span>
-                <span>
-                  {playerJoined ? (
-                    playerSubmitted ? (
-                      <span className="text-green-500">Score Submitted</span>
-                    ) : (
-                      <span className="text-yellow-500">Joined, No Score</span>
-                    )
-                  ) : (
-                    <span className="text-red-500">Not Joined</span>
-                  )}
-                </span>
-              </div>
-            </CardContent>
-            <CardFooter>
-              {!playerJoined && (
-                <Link href={`/events?eventId=${event.id}`} className="w-full">
-                  <Button className="w-full">Join This Event</Button>
-                </Link>
+            <CardContent className="space-y-2">
+              <p>Status: {event.isActive ? "Active" : "Ended"}</p>
+              <p>Players: {event.playerCount}</p>
+              <p>Your Nickname: {playerJoined ? playerNickname : "N/A (Not Joined)"}</p>
+              <p>Your Status: {playerJoined ? (playerSubmitted ? "Score Submitted" : "Joined") : "Not Joined"}</p>
+              {event.isActive && event.timeRemaining > 0 && (
+                <p className="text-sm text-green-500">
+                  Time Remaining: {formatTime(Math.floor(event.timeRemaining / 1000))}
+                </p>
               )}
-            </CardFooter>
+              {!event.isActive && event.winner !== "0x0000000000000000000000000000000000000000" && (
+                <p>Winner: {event.winner.slice(0,6)}...{event.winner.slice(-4)}</p>
+              )}
+            </CardContent>
           </Card>
 
           <Card>
@@ -372,22 +338,47 @@ export default function PlayPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
-                🎮 <strong>Controls:</strong> Use your mouse to control your snake
+                🎮 <strong>Controls:</strong> Use your mouse to control your snake.
               </p>
               <p>
-                🍎 <strong>Objective:</strong> Collect food to grow longer
+                🍎 <strong>Objective:</strong> Collect food (red/orange dots) to grow longer.
               </p>
               <p>
-                ⚠️ <strong>Avoid:</strong> Hitting walls or other snakes
+                🧱 <strong>Avoid:</strong> Hitting walls or other snakes (including AI bots).
               </p>
               <p>
-                ⏱️ <strong>Goal:</strong> Survive as long as possible
+                ⏱️ <strong>Goal:</strong> Survive as long as possible. Your survival time is your score.
               </p>
               <p>
-                🏆 <strong>Win:</strong> The player with the longest survival time wins the prize pool
+                🏆 <strong>Win:</strong> The player with the longest survival time for the current event wins the prize pool.
               </p>
             </CardContent>
           </Card>
+
+          {gameOver && playerJoined && !playerSubmitted && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Game Over!</CardTitle>
+                <CardDescription>Your snake survived for {formatTime(survivalTime)}.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Submit your score to the leaderboard. You can only submit once per event.
+                </p>
+                <Button 
+                  onClick={submitScore} 
+                  disabled={submittingScore || !playerJoined || playerSubmitted} 
+                  className="w-full"
+                >
+                  {submittingScore ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Submitting...</>
+                  ) : (
+                    <><Trophy className="mr-2 h-4 w-4" /> Submit Score</>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
