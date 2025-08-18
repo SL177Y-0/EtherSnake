@@ -1,3 +1,10 @@
+
+
+
+https://github.com/user-attachments/assets/d8c0cd4f-cc1c-46a1-97ba-9f1243278913
+
+
+
 # **Fully Vibe-Coded Game But Architectural Knowledge What A Dev Should Always Required.**
 
 # **EtherSnake Game (Single-Player) - A Blockchain Twist on the Classic Snake**
